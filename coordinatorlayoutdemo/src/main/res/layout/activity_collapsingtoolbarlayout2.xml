@@ -7,7 +7,8 @@
     <android.support.design.widget.AppBarLayout
         android:id="@+id/main.appbar"
         android:layout_width="match_parent"
-        android:layout_height="300dp">
+        android:layout_height="300dp"
+        app:layout_behavior="com.lzp.coordinatorlayoutdemo.OverScrollBehavior">
 
         <android.support.design.widget.CollapsingToolbarLayout
             android:layout_width="match_parent"
