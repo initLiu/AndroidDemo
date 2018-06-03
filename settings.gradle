@@ -1,1 +1,1 @@
-include ':app', ':coordinatorlayoutdemo'
+include ':app', ':coordinatorlayoutdemo', ':recycerviewdemo'
