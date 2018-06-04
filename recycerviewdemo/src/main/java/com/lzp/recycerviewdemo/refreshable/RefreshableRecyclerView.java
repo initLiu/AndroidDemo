@@ -17,8 +17,9 @@ import android.view.animation.AccelerateDecelerateInterpolator;
 
 public class RefreshableRecyclerView extends RecyclerView {
     private int STATE_IDLE = -1;
-    private int STATE_PULLINGDOW = 0;
-    private int STATE_REFRESHING = 1;
+    private int STATE_INIT = 0;
+    private int STATE_PULLIN = 1;
+    private int STATE_REFRESHING = 2;
 
     private RefreshHeaderLayout mHeaderlayout;
     private View mHeader;
@@ -102,12 +103,18 @@ public class RefreshableRecyclerView extends RecyclerView {
         super.onLayout(changed, l, t, r, b);
     }
 
+    private void setState(int state) {
+        if (mState == state) return;
+        mState = state;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent e) {
         if (isRefreshHeaderVisiable()) {
             if (mState == STATE_IDLE) {
                 mLastTouchX = (int) e.getX();
                 mLastTouchY = (int) e.getY();
+                setState(STATE_INIT);
             }
             return true;
         }
@@ -123,6 +130,7 @@ public class RefreshableRecyclerView extends RecyclerView {
                     if (mState == STATE_IDLE) {
                         mLastTouchX = (int) e.getX();
                         mLastTouchY = (int) e.getY();
+                        setState(STATE_INIT);
                     }
                     break;
                 case MotionEvent.ACTION_MOVE:
@@ -136,12 +144,14 @@ public class RefreshableRecyclerView extends RecyclerView {
                             && Math.abs(deltaY) > Math.abs(deltaX) / 2) {//向下滑动
                         setRefreshHeaderLayoutHeight(deltaY);
                         result = true;
+                        setState(STATE_PULLIN);
                     } else if (deltaY < 0
                             && Math.abs(deltaY) > mTouchSlop
                             && Math.abs(deltaY) > Math.abs(deltaX) / 2) {//向上滑动
                         if (mRhlFirstVisiable) {
                             setRefreshHeaderLayoutHeight(Math.abs(deltaY));
                             result = true;
+                            setState(STATE_PULLIN);
                         }
                     }
                     break;
@@ -175,7 +185,7 @@ public class RefreshableRecyclerView extends RecyclerView {
             final ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
             int height = params.height;
             if (height > 0) {
-                mRefreshing = true;
+                setState(STATE_REFRESHING);
                 if (mRefreshListener != null) {
                     mRefreshListener.onRefreshing();
                 }
@@ -184,7 +194,7 @@ public class RefreshableRecyclerView extends RecyclerView {
     }
 
     public void stopRefresh() {
-        if (mRefreshing) {
+        if (mState == STATE_REFRESHING) {
             final ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
             int height = params.height;
             if (height > 0) {
@@ -196,7 +206,7 @@ public class RefreshableRecyclerView extends RecyclerView {
                     public void onAnimationUpdate(ValueAnimator animation) {
                         int value = (int) animation.getAnimatedValue();
                         if (value == 0) {
-                            mRefreshing = false;
+                            setState(STATE_IDLE);
                         }
                         params.height = value;
                         mHeaderlayout.requestLayout();
