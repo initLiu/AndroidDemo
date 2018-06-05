@@ -16,18 +16,22 @@ import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 
 public class RefreshableRecyclerView extends RecyclerView {
-    private int STATE_IDLE = -1;
-    private int STATE_INIT = 0;
-    private int STATE_PULLIN = 1;
-    private int STATE_REFRESHING = 2;
+    private static final int INVALID_POINTER = -1;
 
+    private int STATE_IDLE = -1;
+    private int STATE_PULLING = 2;
+    private int STATE_REFRESHING = 3;
+    private boolean mInit = false;
+
+    private boolean mEnableRefreshingheader;
     private RefreshHeaderLayout mHeaderlayout;
     private View mHeader;
 
     private int mLastTouchX, mLastTouchY;
     private int mTouchSlop;
     private float mMulitiplier = 0.5f;
-    private boolean mRhlFirstVisiable = false;
+    private int mDraggedPointerId = INVALID_POINTER;
+    private int mLastDraggedPointerId = INVALID_POINTER;
 
     private RefreshListener mRefreshListener;
     private int mState = STATE_IDLE;
@@ -49,6 +53,7 @@ public class RefreshableRecyclerView extends RecyclerView {
     public RefreshableRecyclerView(Context context, @Nullable AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
         mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        Log.e("Test", "mTouchSlop=" + mTouchSlop);
     }
 
     public void setRefreshHeader(View view) {
@@ -74,6 +79,13 @@ public class RefreshableRecyclerView extends RecyclerView {
         mRefreshListener = listener;
     }
 
+    public void enableRefreshHeader(boolean enable) {
+        mEnableRefreshingheader = enable;
+        if (mEnableRefreshingheader) {
+            setOverScrollMode(View.OVER_SCROLL_NEVER);
+        }
+    }
+
     @Override
     public void setAdapter(RecyclerView.Adapter adapter) {
         initRefreshHeaderLayout();
@@ -93,74 +105,95 @@ public class RefreshableRecyclerView extends RecyclerView {
         }
     }
 
-    @Override
-    protected void onMeasure(int widthSpec, int heightSpec) {
-        super.onMeasure(widthSpec, heightSpec);
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        super.onLayout(changed, l, t, r, b);
-    }
-
     private void setState(int state) {
         if (mState == state) return;
         mState = state;
     }
 
+    private void resetFlag() {
+        mInit = false;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent e) {
-        if (isRefreshHeaderVisiable()) {
-            if (mState == STATE_IDLE) {
-                mLastTouchX = (int) e.getX();
-                mLastTouchY = (int) e.getY();
-                setState(STATE_INIT);
+        if (mEnableRefreshingheader && isRefreshHeaderVisiable()) {
+            boolean intercept = false;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    //只有在state为pulling或refreshing时，才需要拦截
+                    if (mState != STATE_IDLE) {
+                        intercept = true;
+                    }
+                    break;
+                //为什么不加上ACTION_MOVE的判断？因为在满足isRefreshHeaderVisiable()这个的条件下，不会有ACTION_MOVE事件传递到这里，所以不需要。
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    //只有在state为pulling或refreshing时，需要拦截
+                    if (mState != STATE_IDLE) {
+                        intercept = true;
+                    }
+                    break;
             }
-            return true;
+            if (intercept) {
+                return true;
+            }
         }
         return super.onInterceptTouchEvent(e);
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        if (isRefreshHeaderVisiable()) {
-            boolean result = false;
+        final int actionIdenx = e.getActionIndex();
+
+        if (mEnableRefreshingheader && isRefreshHeaderVisiable()) {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    if (mState == STATE_IDLE) {
-                        mLastTouchX = (int) e.getX();
-                        mLastTouchY = (int) e.getY();
-                        setState(STATE_INIT);
-                    }
+                    mDraggedPointerId = e.getPointerId(0);
+                    break;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    mDraggedPointerId = e.getPointerId(actionIdenx);
                     break;
                 case MotionEvent.ACTION_MOVE:
-                    int curX = (int) e.getX();
-                    int curY = (int) e.getY();
+                    final int index = e.findPointerIndex(mDraggedPointerId);
+                    if (index < 0) {
+                        Log.e("Test", "Error processing scroll; pointer index for id "
+                                + mDraggedPointerId + " not found. Did any MotionEvents get skipped?");
+                        return false;
+                    }
+
+                    //记录上次事件的坐标。header的拖动，是根据最近两次事件的坐标差值计算的
+                    //如果是多点触控，重新计算起始点坐标
+                    if (!mInit || (mLastDraggedPointerId != mDraggedPointerId)) {
+                        mLastTouchX = (int) e.getX(index);
+                        mLastTouchY = (int) e.getY(index);
+                        mInit = true;
+                        mLastDraggedPointerId = mDraggedPointerId;
+                    }
+
+                    int curX = (int) e.getX(index);
+                    int curY = (int) e.getY(index);
                     int deltaY = curY - mLastTouchY;
                     int deltaX = curX - mLastTouchX;
 
-                    if (deltaY > 0
-                            && Math.abs(deltaY) > mTouchSlop
-                            && Math.abs(deltaY) > Math.abs(deltaX) / 2) {//向下滑动
+                    if (isIninitState() && deltaY < 0) {//recyclerview在最初的位置，现在要往上滑动，需要重置状态，让RecyclerView处理向上滑动
+                        setState(STATE_IDLE);//重置状态
+                    } else if (mState != STATE_PULLING && Math.abs(deltaY) > mTouchSlop) {//首次拖动header时，需要判断拖动的距离是否大于mTouchSlop
+                        setState(STATE_PULLING);
+                    }
+
+                    if (mState == STATE_PULLING) {
                         setRefreshHeaderLayoutHeight(deltaY);
-                        result = true;
-                        setState(STATE_PULLIN);
-                    } else if (deltaY < 0
-                            && Math.abs(deltaY) > mTouchSlop
-                            && Math.abs(deltaY) > Math.abs(deltaX) / 2) {//向上滑动
-                        if (mRhlFirstVisiable) {
-                            setRefreshHeaderLayoutHeight(Math.abs(deltaY));
-                            result = true;
-                            setState(STATE_PULLIN);
-                        }
+                        mLastTouchY = curY;
+                        mLastTouchX = curX;
                     }
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     enterRefreshingState();
+                    resetFlag();
                     break;
             }
-            if (result) {
+            if (mState == STATE_PULLING || mState == STATE_REFRESHING) {
                 return true;
             }
         }
@@ -168,67 +201,141 @@ public class RefreshableRecyclerView extends RecyclerView {
         return super.onTouchEvent(e);
     }
 
-    private void setRefreshHeaderLayoutHeight(int height) {
-        if (mRefreshListener != null) {
-            mRefreshListener.onPullingDown(height);
+    /**
+     * 设置RefreshHeaderLayout的高度
+     *
+     * @param dy dy>0向下滑动 dy<0向上滑动
+     */
+    private void setRefreshHeaderLayoutHeight(int dy) {
+        int realDy = (int) (dy * mMulitiplier);//乘以一个系数，让拖动产生阻尼效果
+        if (mHeaderlayout != null) {
+            ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
+            if (params.height == 0 && realDy <= 0) {
+                return;
+            }
+            params.height += realDy;
+            if (params.height < 0) {
+                params.height = 0;
+            }
+            mHeaderlayout.requestLayout();
         }
 
-        int realHeight = (int) (height * mMulitiplier);
-        if (mHeaderlayout != null) {
-            mHeaderlayout.getLayoutParams().height = realHeight;
-            mHeaderlayout.requestLayout();
+        if (mRefreshListener != null) {
+            mRefreshListener.onPullingDown(realDy);
         }
     }
 
+    /**
+     * 进入到刷新状态
+     */
     private void enterRefreshingState() {
         if (mHeaderlayout != null) {
             final ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
-            int height = params.height;
-            if (height > 0) {
+            if (canEnterRefreshing(params.height)) {
+                fixRefreshHeaderlayoutHeigt();
                 setState(STATE_REFRESHING);
+
                 if (mRefreshListener != null) {
                     mRefreshListener.onRefreshing();
+                }
+            } else {
+                resetRefreshHeaderLayoutHeightWithAnim();
+            }
+        }
+    }
+
+    /**
+     * 当RefreshingHeaderLayout的高度大于RefreshingHeaderLayout中的第一个child的高度时，
+     * 将RefreshingHeaderLayout的高度设置为第一个child的高度
+     */
+    private void fixRefreshHeaderlayoutHeigt() {
+        if (mHeaderlayout != null) {
+            View child = mHeaderlayout.getChildAt(0);
+            if (child != null) {
+                if (mHeaderlayout.getHeight() > child.getHeight()) {
+                    mHeaderlayout.getLayoutParams().height = child.getHeight();
+                    mHeaderlayout.requestLayout();
                 }
             }
         }
     }
 
+    /**
+     * 判断RefreshingHeaderLayout中的第一个child是否完全显示出来
+     *
+     * @param height
+     * @return
+     */
+    private boolean canEnterRefreshing(int height) {
+        if (mHeaderlayout != null) {
+            View child = mHeaderlayout.getChildAt(0);
+            if (child != null) {
+                return height > child.getHeight();
+            }
+        }
+        return false;
+    }
+
     public void stopRefresh() {
         if (mState == STATE_REFRESHING) {
-            final ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
-            int height = params.height;
-            if (height > 0) {
-                ValueAnimator animator = ValueAnimator.ofInt(height, 0);
-                animator.setDuration(200);
-                animator.setInterpolator(new AccelerateDecelerateInterpolator());
-                animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                    @Override
-                    public void onAnimationUpdate(ValueAnimator animation) {
-                        int value = (int) animation.getAnimatedValue();
-                        if (value == 0) {
-                            setState(STATE_IDLE);
-                        }
-                        params.height = value;
-                        mHeaderlayout.requestLayout();
-                    }
-                });
-                animator.start();
-            }
+            resetRefreshHeaderLayoutHeightWithAnim();
         }
     }
 
+    private void resetRefreshHeaderLayoutHeightWithAnim() {
+        final ViewGroup.LayoutParams params = mHeaderlayout.getLayoutParams();
+        int height = params.height;
+        if (height > 0) {
+            ValueAnimator animator = ValueAnimator.ofInt(height, 0);
+            animator.setDuration(200);
+            animator.setInterpolator(new AccelerateDecelerateInterpolator());
+            animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator animation) {
+                    int value = (int) animation.getAnimatedValue();
+                    if (value == 0) {
+                        setState(STATE_IDLE);
+                    }
+                    params.height = value;
+                    mHeaderlayout.requestLayout();
+                }
+            });
+            animator.start();
+        }
+    }
+
+    /**
+     * 判断是否可以拖动RefreshHeaderLayout
+     *
+     * @return
+     */
     private boolean isRefreshHeaderVisiable() {
         if (getAdapter() == null || getAdapter().getItemCount() == 0) {
             return false;
         }
         int pos = ((LinearLayoutManager) getLayoutManager()).findFirstVisibleItemPosition();
-//        Log.e("Test", "pos=" + pos);
         if (pos == 1) {
-            mRhlFirstVisiable = false;
             return getLayoutManager().getChildAt(0).getTop() == 0;
         } else if (pos == 0) {
-            mRhlFirstVisiable = true;
             return true;
+        }
+        return false;
+    }
+
+    /**
+     * 判断第一个显示的item的pos是否为1，并且这个item的top==0，即没有拖动也没有滑动的状态(初始状态)
+     *
+     * @return
+     */
+    private boolean isIninitState() {
+        if (getAdapter() == null || getAdapter().getItemCount() == 0) {
+            return false;
+        }
+        int pos = ((LinearLayoutManager) getLayoutManager()).findFirstVisibleItemPosition();
+//        Log.e("Test", "FirstVisibleItemPosition =" + pos);
+        if (pos == 1) {
+//            Log.e("Test", "FirstVisibleItemPosition top=" + getLayoutManager().getChildAt(0).getTop());
+            return getLayoutManager().getChildAt(0).getTop() == 0;
         }
         return false;
     }
@@ -286,7 +393,7 @@ public class RefreshableRecyclerView extends RecyclerView {
             if (position == 0) {
                 return ITEM_TYPE_HEADER;
             }
-            if (position > 0 && position < mBase.getItemCount()) {
+            if (position > 0 && position < mBase.getItemCount() + 1) {
                 return mBase.getItemViewType(position - 1);
             }
             throw new IllegalArgumentException("Wrong type! position = " + position);

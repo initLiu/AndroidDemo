@@ -37,6 +37,7 @@ public class RecyclerViewDemoActivity extends AppCompatActivity {
         mRecyclerView.setAdapter(mAdapter);
         View view = LayoutInflater.from(RecyclerViewDemoActivity.this).inflate(R.layout.item_header, null);
         mRecyclerView.setRefreshHeader(view);
+        mRecyclerView.enableRefreshHeader(true);
         mAdapter.setData(initData());
 
         findViewById(R.id.recyclerdemo_btn).setOnClickListener(new View.OnClickListener() {
@@ -49,7 +50,7 @@ public class RecyclerViewDemoActivity extends AppCompatActivity {
 
     private List<Item> initData() {
         List<Item> items = new ArrayList<>();
-//        items.add(new ItemBanner());
+        items.add(new ItemBanner());
 
         for (int i = 0; i < 500; i++) {
             items.add(new ItemContent("item " + i));
