@@ -15,6 +15,11 @@ import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 
+/**
+ * 为RecyclerView增加下拉刷新功能
+ * 通过给RecyclerView的Adapter增加一个代理ProxyAdapter实现。
+ * ProxyAdapter中起始位置增加了一下下拉刷新RefreshHeaderLayout，设置的下拉刷新布局将作为这个RefreshHeaderLayout的子view存在。
+ */
 public class RefreshableRecyclerView extends RecyclerView {
     private static final int INVALID_POINTER = -1;
 
@@ -79,6 +84,12 @@ public class RefreshableRecyclerView extends RecyclerView {
         mRefreshListener = listener;
     }
 
+    /**
+     * 是否开启下拉刷新
+     * 开启后，将会禁用RecyclerView的OVER_SCROLL
+     *
+     * @param enable
+     */
     public void enableRefreshHeader(boolean enable) {
         mEnableRefreshingheader = enable;
         if (mEnableRefreshingheader) {
@@ -98,6 +109,7 @@ public class RefreshableRecyclerView extends RecyclerView {
         }
     }
 
+    //初始化RefreshHeaderLayout，设置高度为0
     private void initRefreshHeaderLayout() {
         if (mHeaderlayout == null) {
             mHeaderlayout = new RefreshHeaderLayout(getContext());

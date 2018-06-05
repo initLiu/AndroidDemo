@@ -50,6 +50,8 @@ public class RefreshHeaderLayout extends ViewGroup {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (getChildCount() > 0) {
+            //设置RefreshHeaderLayout的第一个child的高度，
+            //由child自己决定他的高度
             measureChildWithMargins(getChildAt(0), widthMeasureSpec, 0, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), 0);
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
